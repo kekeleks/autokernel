@@ -17,9 +17,10 @@ const char* type_to_str(enum symbol_type type) {
 		case S_HEX:       return "hex";
 		case S_STRING:    return "string";
 	}
+	assert(false);
 }
 
-const char* prop_type_to_str(enum symbol_type type) {
+const char* prop_type_to_str(enum prop_type type) {
 	switch (type) {
 		case P_UNKNOWN:  return "unknown";
 		case P_PROMPT:   return "prompt";
@@ -32,6 +33,7 @@ const char* prop_type_to_str(enum symbol_type type) {
 		case P_RANGE:    return "range";
 		case P_SYMBOL:   return "symbol";
 	}
+	assert(false);
 }
 
 const char* expr_type_to_str(enum expr_type type) {
@@ -50,6 +52,7 @@ const char* expr_type_to_str(enum expr_type type) {
 		case E_SYMBOL:   return "symbol";
 		case E_RANGE:    return "range";
 	}
+	assert(false);
 }
 
 const char* tristate_to_str(enum tristate tri) {
@@ -58,6 +61,7 @@ const char* tristate_to_str(enum tristate tri) {
 		case mod: return "mod";
 		case yes: return "yes";
 	}
+	assert(false);
 }
 
 void text_to_json(const char* text) {
@@ -72,14 +76,23 @@ void text_to_json(const char* text) {
 	free(out);
 }
 
-void value_to_json(struct symbol_value value) {
+void value_to_json(struct symbol* sym, struct symbol_value value) {
 	printf("{\n");
-	printf("\"val\": \"%s\",\n", "" /* TODO value.val*/);
+	if (sym_is_choice(sym)) {
+		printf("\"val\": \"%p\",\n", value.val);
+	} else if (value.val == NULL) {
+		printf("\"val\": \"null\",\n");
+	} else {
+		int dummy = 42;
+		char* out = base64(value.val, strlen((const char*)value.val), &dummy);
+		printf("\"val\": \"%s\",\n", out);
+		free(out);
+	}
 	printf("\"tri\": \"%s\"\n", tristate_to_str(value.tri));
 	printf("}\n");
 }
 
-void expr_part_to_json(const char* part, struct expr_data* data, bool is_expr) {
+void expr_part_to_json(const char* part, union expr_data* data, bool is_expr) {
 	printf("\"%s\":", part);
 	if (is_expr) {
 		expr_to_json(data->expr);
@@ -96,8 +109,9 @@ void expr_to_json(struct expr* ex) {
 	}
 	printf("{\n");
 	printf("\"type\": \"%s\",\n", expr_type_to_str(ex->type));
-	switch (type) {
+	switch (ex->type) {
 		case E_NONE:
+			assert(false);
 			break;
 		case E_OR:
 		case E_AND:
@@ -174,19 +188,19 @@ void props_to_json(struct property * prop) {
 int main(int ac, char **av) {
 	conf_parse(av[1]);
 	conf_read(".config");
-	struct symbol *sym, *csym;
-	int i, cnt;
-	printf("[\n");
+	struct symbol *sym;
+	int i;
+	printf("{\n");
 	for_all_symbols(i, sym) {
-		printf("{\n");
+		printf("\"%p\": {\n", sym);
 		printf("\"name\": \"%s\",\n", sym->name);
 		printf("\"type\": \"%s\",\n", type_to_str(sym->type));
-		printf("\"curr\": "); value_to_json(sym->curr); printf(",\n");
+		printf("\"curr\": "); value_to_json(sym, sym->curr); printf(",\n");
 		printf("\"def\": {\n");
-		printf("\"user\": "); value_to_json(sym->def[0]); printf(",\n");
-		printf("\"auto\": "); value_to_json(sym->def[1]); printf(",\n");
-		printf("\"def3\": "); value_to_json(sym->def[2]); printf(",\n");
-		printf("\"def4\": "); value_to_json(sym->def[3]); printf("\n");
+		printf("\"user\": "); value_to_json(sym, sym->def[0]); printf(",\n");
+		printf("\"auto\": "); value_to_json(sym, sym->def[1]); printf(",\n");
+		printf("\"def3\": "); value_to_json(sym, sym->def[2]); printf(",\n");
+		printf("\"def4\": "); value_to_json(sym, sym->def[3]); printf("\n");
 		printf("},\n");
 		printf("\"visible\": \"%s\",\n", tristate_to_str(sym->visible));
 		printf("\"flags\": \"%d\",\n", sym->flags);
@@ -196,7 +210,7 @@ int main(int ac, char **av) {
 		printf("]\n");
 		printf("},\n");
 	}
-	printf("{\"_dummy_\": null}\n");
-	printf("]\n");
+	printf("\"_dummy_\": {\"_dummy_\": null}\n");
+	printf("}\n");
 	return 0;
 }
