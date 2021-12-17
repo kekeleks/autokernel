@@ -79,36 +79,53 @@ void value_to_json(struct symbol_value value) {
 	printf("}\n");
 }
 
-void expr_child_to_json(const char* child, struct expr* value) {
-	printf("\"%s\":", child);
-	expr_to_json(value);
+void expr_part_to_json(const char* part, struct expr_data* data, bool is_expr) {
+	printf("\"%s\":", part);
+	if (is_expr) {
+		expr_to_json(data->expr);
+	} else {
+		printf("\"%p\"", data->sym);
+	}
 	printf(",");
 }
 
-#define PRINT_L expr_child_to_json("left", value->left)
-#define PRINT_R expr_child_to_json("left", value->left)
-
-void expr_to_json(struct expr* value) {
-	if (!value) {
+void expr_to_json(struct expr* ex) {
+	if (!ex) {
 		printf("null\n");
 		return;
 	}
 	printf("{\n");
-	printf("\"type\": \"%s\",\n", expr_type_to_str(value->type));
+	printf("\"type\": \"%s\",\n", expr_type_to_str(ex->type));
 	switch (type) {
-		case E_NONE:     break;
-		case E_OR:       PRINT_L; PRINT_R; break;
-		case E_AND:      PRINT_L; PRINT_R; break;
-		case E_NOT:      PRINT_L; break;
-		case E_EQUAL:    PRINT_L; PRINT_R; break;
-		case E_UNEQUAL:  PRINT_L; PRINT_R; break;
-		case E_LTH:      PRINT_L; PRINT_R; break;
-		case E_LEQ:      PRINT_L; PRINT_R; break;
-		case E_GTH:      PRINT_L; PRINT_R; break;
-		case E_GEQ:      PRINT_L; PRINT_R; break;
-		case E_LIST:     /* TODO */ break;
-		case E_RANGE:    /* TODO */ break;
-		case E_SYMBOL:   printf("\"symbol\": \"%p\"\n", value->left.sym); break;
+		case E_NONE:
+			break;
+		case E_OR:
+		case E_AND:
+			expr_part_to_json("left", &ex->left, true);
+			expr_part_to_json("right", &ex->right, true);
+			break;
+		case E_NOT:
+			expr_part_to_json("left", &ex->left, true);
+			printf("\"right\": null,\n");
+			break;
+		case E_EQUAL:
+		case E_UNEQUAL:
+		case E_LTH:
+		case E_LEQ:
+		case E_GTH:
+		case E_GEQ:
+		case E_RANGE:
+			expr_part_to_json("left", &ex->left, false);
+			expr_part_to_json("right", &ex->right, false);
+			break;
+		case E_LIST:
+			expr_part_to_json("left", &ex->left, true);
+			expr_part_to_json("right", &ex->right, false);
+			break;
+		case E_SYMBOL:
+			expr_part_to_json("left", &ex->left, false);
+			printf("\"right\": null,\n");
+			break;
 	}
 	printf("\"dummy\": null\n");
 	printf("}\n");
