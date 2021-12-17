@@ -5,6 +5,8 @@
 #include "lkc.h"
 #include <ctype.h>
 
+void expr_to_json(struct expr* value);
+
 const char* type_to_str(enum symbol_type type) {
 	switch (type) {
 		case S_UNKNOWN:   return "unknown";
@@ -76,10 +78,19 @@ void text_to_json(const char* text) {
 
 void value_to_json(struct symbol_value value) {
 	printf("{\n");
-	printf("\"val\": \"%s\",\n", "" /*value.val*/);
+	printf("\"val\": \"%s\",\n", "" /* TODO value.val*/);
 	printf("\"tri\": \"%s\"\n", tristate_to_str(value.tri));
 	printf("}\n");
 }
+
+void expr_child_to_json(const char* child, struct expr* value) {
+	printf("\"%s\":", child);
+	expr_to_json(value);
+	printf(",");
+}
+
+#define PRINT_L expr_child_to_json("left", value->left)
+#define PRINT_R expr_child_to_json("left", value->left)
 
 void expr_to_json(struct expr* value) {
 	if (!value) {
@@ -87,7 +98,23 @@ void expr_to_json(struct expr* value) {
 		return;
 	}
 	printf("{\n");
-	printf("\"type\": \"%s\"\n", expr_type_to_str(value->type));
+	printf("\"type\": \"%s\",\n", expr_type_to_str(value->type));
+	switch (type) {
+		case E_NONE:     break;
+		case E_OR:       PRINT_L; PRINT_R; break;
+		case E_AND:      PRINT_L; PRINT_R; break;
+		case E_NOT:      PRINT_L; break;
+		case E_EQUAL:    PRINT_L; PRINT_R; break;
+		case E_UNEQUAL:  PRINT_L; PRINT_R; break;
+		case E_LTH:      PRINT_L; PRINT_R; break;
+		case E_LEQ:      PRINT_L; PRINT_R; break;
+		case E_GTH:      PRINT_L; PRINT_R; break;
+		case E_GEQ:      PRINT_L; PRINT_R; break;
+		case E_LIST:     /* TODO */ break;
+		case E_RANGE:    /* TODO */ break;
+		case E_SYMBOL:   printf("\"symbol\": \"%p\"\n", value->left.sym); break;
+	}
+	printf("\"dummy\": null\n");
 	printf("}\n");
 }
 
