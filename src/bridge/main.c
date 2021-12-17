@@ -185,6 +185,29 @@ void props_to_json(struct property * prop) {
 	}
 }
 
+void print_symbol(struct symbol* sym) {
+	printf("\"%p\": {\n", sym);
+	printf("\"name\": \"%s\",\n", sym->name);
+	printf("\"type\": \"%s\",\n", type_to_str(sym->type));
+	printf("\"curr\": "); value_to_json(sym, sym->curr); printf(",\n");
+	printf("\"def\": {\n");
+	printf("\"user\": "); value_to_json(sym, sym->def[0]); printf(",\n");
+	printf("\"auto\": "); value_to_json(sym, sym->def[1]); printf(",\n");
+	printf("\"def3\": "); value_to_json(sym, sym->def[2]); printf(",\n");
+	printf("\"def4\": "); value_to_json(sym, sym->def[3]); printf("\n");
+	printf("},\n");
+	printf("\"visible\": \"%s\",\n", tristate_to_str(sym->visible));
+	printf("\"flags\": \"%d\",\n", sym->flags);
+	printf("\"properties\": [\n");
+	props_to_json(sym->prop);
+	printf("{\"_dummy_\": null\n}");
+	printf("],\n");
+	printf("\"dir_dep\": "); expr_value_to_json(sym->dir_dep); printf(",\n");
+	printf("\"rev_dep\": "); expr_value_to_json(sym->rev_dep); printf(",\n");
+	printf("\"implied\": "); expr_value_to_json(sym->implied); printf("\n");
+	printf("},\n");
+}
+
 int main(int ac, char **av) {
 	conf_parse(av[1]);
 	conf_read(".config");
@@ -192,24 +215,11 @@ int main(int ac, char **av) {
 	int i;
 	printf("{\n");
 	for_all_symbols(i, sym) {
-		printf("\"%p\": {\n", sym);
-		printf("\"name\": \"%s\",\n", sym->name);
-		printf("\"type\": \"%s\",\n", type_to_str(sym->type));
-		printf("\"curr\": "); value_to_json(sym, sym->curr); printf(",\n");
-		printf("\"def\": {\n");
-		printf("\"user\": "); value_to_json(sym, sym->def[0]); printf(",\n");
-		printf("\"auto\": "); value_to_json(sym, sym->def[1]); printf(",\n");
-		printf("\"def3\": "); value_to_json(sym, sym->def[2]); printf(",\n");
-		printf("\"def4\": "); value_to_json(sym, sym->def[3]); printf("\n");
-		printf("},\n");
-		printf("\"visible\": \"%s\",\n", tristate_to_str(sym->visible));
-		printf("\"flags\": \"%d\",\n", sym->flags);
-		printf("\"properties\": [\n");
-		props_to_json(sym->prop);
-		printf("{\"_dummy_\": null\n}");
-		printf("]\n");
-		printf("},\n");
+		print_symbol(sym);
 	}
+	print_symbol(sym_lookup("n", 0));
+	print_symbol(sym_lookup("m", 0));
+	print_symbol(sym_lookup("y", 0));
 	printf("\"_dummy_\": {\"_dummy_\": null}\n");
 	printf("}\n");
 	return 0;
