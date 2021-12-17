@@ -4,6 +4,7 @@
 
 #include "lkc.h"
 #include <ctype.h>
+#include "base64.h"
 
 void expr_to_json(struct expr* value);
 
@@ -65,15 +66,10 @@ void text_to_json(const char* text) {
 		return;
 	}
 
-	printf("\"");
-	while (*text) {
-		if (*text == '"') {
-			printf("\\");
-		}
-		printf("%c", *text);
-		++text;
-	}
-	printf("\"");
+	int dummy = 42;
+	char* out = base64(text, strlen(text), &dummy);
+	printf("\"%s\"", out);
+	free(out);
 }
 
 void value_to_json(struct symbol_value value) {
@@ -127,6 +123,37 @@ void expr_value_to_json(struct expr_value value) {
 	printf("}\n");
 }
 
+void menu_to_json(struct menu* menu) {
+	printf("{\n");
+	printf("\"visibility\":"); expr_to_json(menu->visibility); printf(",");
+	printf("\"dep\":"); expr_to_json(menu->dep); printf(",");
+	printf("\"flags\": \"%d\",", menu->flags);
+	printf("\"help\":"); text_to_json(menu->help);
+	printf("}\n");
+}
+
+void props_to_json(struct property * prop) {
+	struct property* p = prop;
+	while (p) {
+		printf("{\n");
+		printf("\"type\": \"%s\",\n", prop_type_to_str(p->type));
+		printf("\"text\": "); text_to_json(p->text); printf(",\n");
+		printf("\"visible\": "); expr_value_to_json(p->visible); printf(",\n");
+		if (p->expr) {
+			printf("\"expr\": "); expr_to_json(p->expr); printf(",\n");
+		}
+		if (p->menu) {
+			printf("\"menu\": "); menu_to_json(p->menu); printf(",\n");
+		}
+		if (p->file) {
+			printf("\"file\": \"%s\",\n", p->file->name);
+		}
+		printf("\"lineno\": \"%d\"\n", p->lineno);
+		printf("},\n");
+		p = p->next;
+	}
+}
+
 int main(int ac, char **av) {
 	conf_parse(av[1]);
 	conf_read(".config");
@@ -147,25 +174,7 @@ int main(int ac, char **av) {
 		printf("\"visible\": \"%s\",\n", tristate_to_str(sym->visible));
 		printf("\"flags\": \"%d\",\n", sym->flags);
 		printf("\"properties\": [\n");
-		struct property* p = sym->prop;
-		while (p) {
-			printf("{\n");
-			printf("\"type\": \"%s\",\n", prop_type_to_str(p->type));
-			printf("\"text\": "); text_to_json(p->text); printf(",\n");
-			printf("\"visible\": "); expr_value_to_json(p->visible); printf(",\n");
-			if (p->expr) {
-				printf("\"expr\": "); expr_to_json(p->expr); printf(",\n");
-			}
-			//if (p->menu) {
-			//	printf("\"menu\": \"%s\",\n", expr_to_str(p->expr));
-			//}
-			if (p->file) {
-				printf("\"file\": \"%s\",\n", p->file->name);
-			}
-			printf("\"lineno\": \"%d\"\n", p->lineno);
-			printf("},\n");
-			p = p->next;
-		}
+		props_to_json(sym->prop);
 		printf("{\"_dummy_\": null\n}");
 		printf("]\n");
 		printf("},\n");
