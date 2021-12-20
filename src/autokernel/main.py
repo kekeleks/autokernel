@@ -1,7 +1,48 @@
-import os
+from __future__ import annotations
+
 import base64
 import json
 import sys
+from dataclasses import dataclass
+from typing import Union
+
+@dataclass
+class SymbolPtr:
+    id: str
+
+    def symbol(self) -> Symbol:
+        s = symbol_by_id.get(self.id, None)
+        if s is None:
+            s = symbol_by_name.get(self.id, None)
+        if s is None:
+            raise ValueError(f"Symbol with id or name {self.id} not found")
+        return s
+
+    def __str__(self):
+        return f"sym {self.id}"
+
+@dataclass
+class Expr:
+    type: str
+    left: MaybeExpr
+    right: MaybeExpr
+
+    def __str__(self):
+        return f"({self.type}, {self.left}, {self.right})"
+
+@dataclass
+class Symbol:
+    id: str
+    name: str
+    dir_depend: MaybeExpr
+    rev_depend: MaybeExpr
+    implied: MaybeExpr
+    #cur_val: Value
+
+    def __str__(self):
+        return f"Symbol({self.id=}, {self.name=}, {self.dir_depend=}, {self.rev_depend=}, {self.implied=})"
+
+MaybeExpr = Union[Expr, SymbolPtr, None]
 
 def load_kernel_symbols(filename: str) -> dict:
     with open(filename, "r") as f:
@@ -9,65 +50,35 @@ def load_kernel_symbols(filename: str) -> dict:
 
 raw_syms = load_kernel_symbols("./syms-linux-5.15.10.json")
 
-def print_expr(expr):
-    if not expr:
+def parse_expr(e: Union[dict, str, None]) -> MaybeExpr:
+    if e is not None:
         return
-    if isinstance(expr, dict):
-        print(f"({expr['type']} ", end="")
-        print_expr(expr["left"])
-        print(" ", end="")
-        print_expr(expr["right"])
-        print(")", end="")
-    elif isinstance(expr, str):
-        print(raw_syms[expr]["name"], raw_syms[expr]["ptr"], end="")
+    if isinstance(e, dict):
+        return Expr(e["type"], parse_expr(e["left"]), parse_expr(e["right"]))
+    elif isinstance(e, str):
+        return SymbolPtr(e)
+
+symbol_by_id: dict[str, Symbol] = {}
+symbol_by_name: dict[str, Symbol] = {}
+
+for ptr,s in raw_syms.items():
+    if "name" not in s:
+        continue
+
+    symbol = Symbol(
+        id=ptr,
+        name=s["name"],
+        dir_depend=parse_expr(s["dir_dep"].get("expr", None)),
+        rev_depend=parse_expr(s["rev_dep"].get("expr", None)),
+        implied=parse_expr(s["implied"].get("expr", None)),
+    )
+
+    symbol_by_id[symbol.id] = symbol
+    symbol_by_name[symbol.name] = symbol
 
 def main() -> None:
     #kernel = load_kernel("/usr/src/linux")
     #kernel.syms["EXPERT"]
 
-    syms = {}
-    for ptr,s in raw_syms.items():
-        if "name" not in s:
-            continue
-        syms[s["name"]] = s
-        s["ptr"] = ptr
-
-    #print(json.dumps(syms["PCMCIA_RAYCS"]))
-    print("properties:")
-    s = syms.get(sys.argv[1], None)
-    if not s:
-        s = raw_syms[sys.argv[1]]
-    for i in s["properties"]:
-        if "type" not in i:
-            continue
-        print(f"{i['type']}")
-        if i["text"]:
-            print(base64.b64decode(i["text"]))
-        if "expr" in i:
-            print("expr: ", end="")
-            print_expr(i["expr"])
-            print()
-        if "expr" in i["visible"]:
-            print("vis expr: ", end="")
-            print_expr(i["visible"]["expr"])
-            print()
-    print("current value: ", end="")
-    if "val" in s["curr"]:
-        if s["curr"]["val"].startswith("0x"):
-            print(raw_syms[s["curr"]["val"]]["name"])
-        else:
-            print(base64.b64decode(s["curr"]["val"]))
-    else:
-        print("Keine du")
-    if "expr" in s["dir_dep"]:
-        print("dir dep: ", end="")
-        print_expr(s["dir_dep"]["expr"])
-        print()
-    if "expr" in s["rev_dep"]:
-        print("rev dep: ", end="")
-        print_expr(s["rev_dep"]["expr"])
-        print()
-    if "expr" in s["implied"]:
-        print("implied: ", end="")
-        print_expr(s["implied"]["expr"])
-        print()
+    s = SymbolPtr(sys.argv[1]).symbol()
+    print(s)
