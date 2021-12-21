@@ -2,9 +2,10 @@ from __future__ import annotations
 
 import base64
 import json
+import sympy
 import sys
 from dataclasses import dataclass
-from typing import Union
+from typing import Any, Union
 
 @dataclass
 class SymbolPtr:
@@ -18,8 +19,20 @@ class SymbolPtr:
             raise ValueError(f"Symbol with id or name {self.id} not found")
         return s
 
-    def __str__(self):
-        return f"sym {self.id}"
+    def __repr__(self):
+        try:
+            name = self.symbol().name
+        except ValueError:
+            name = self.id
+        return f"sym {name}"
+
+def maybe_expr_to_sympy(e: MaybeExpr):
+    if e is None:
+        raise ValueError("Cannot convert nil expression")
+    if isinstance(e, Expr):
+        return e.sympy()
+    elif isinstance(e, SymbolPtr):
+        return sympy.Symbol(e.symbol().name)
 
 @dataclass
 class Expr:
@@ -27,20 +40,38 @@ class Expr:
     left: MaybeExpr
     right: MaybeExpr
 
-    def __str__(self):
-        return f"({self.type}, {self.left}, {self.right})"
+    def sympy(self) -> Any:
+        def eq(a, b):
+            return (a & b) | (~a & ~b)
+        fs = {
+            "or":      lambda e: maybe_expr_to_sympy(e.left) | maybe_expr_to_sympy(e.right),       # a_ym | b_ym
+            "and":     lambda e: maybe_expr_to_sympy(e.left) & maybe_expr_to_sympy(e.right),       # (a_ym) & (b_ym)
+            "not":     lambda e: ~maybe_expr_to_sympy(e.left),                                     # (a_n | a_m)
+            "equal":   lambda e: eq(maybe_expr_to_sympy(e.left), maybe_expr_to_sympy(e.right)),    # (a_y & b_y) | (a_m & b_m) | (a_n & b_n)
+            "unequal": lambda e: ~eq(maybe_expr_to_sympy(e.left), maybe_expr_to_sympy(e.right)),   # ~((a_y & b_y) | (a_m & b_m) | (a_n & b_n))
+            "lth":     lambda e: maybe_expr_to_sympy(e.left) <  maybe_expr_to_sympy(e.right),      #
+            "leq":     lambda e: maybe_expr_to_sympy(e.left) <= maybe_expr_to_sympy(e.right),      #
+            "gth":     lambda e: maybe_expr_to_sympy(e.left) >  maybe_expr_to_sympy(e.right),      #
+            "geq":     lambda e: maybe_expr_to_sympy(e.left) >= maybe_expr_to_sympy(e.right),      #
+            "symbol":  lambda e: maybe_expr_to_sympy(e.left),
+        }
+        if self.type not in fs:
+            raise ValueError(f"Cannot convert {self.type} expression to sympy.")
+        op = fs[self.type]
+        return op(self)
+        return sympy.logic.boolalg.to_dnf(op(self))
+
+    def __repr__(self):
+        return f"{self.sympy()}"
 
 @dataclass
 class Symbol:
     id: str
     name: str
-    dir_depend: MaybeExpr
-    rev_depend: MaybeExpr
+    dependencies: MaybeExpr
+    selected_by: MaybeExpr
     implied: MaybeExpr
     #cur_val: Value
-
-    def __str__(self):
-        return f"Symbol({self.id=}, {self.name=}, {self.dir_depend=}, {self.rev_depend=}, {self.implied=})"
 
 MaybeExpr = Union[Expr, SymbolPtr, None]
 
@@ -51,8 +82,8 @@ def load_kernel_symbols(filename: str) -> dict:
 raw_syms = load_kernel_symbols("./syms-linux-5.15.10.json")
 
 def parse_expr(e: Union[dict, str, None]) -> MaybeExpr:
-    if e is not None:
-        return
+    if e is None:
+        return None
     if isinstance(e, dict):
         return Expr(e["type"], parse_expr(e["left"]), parse_expr(e["right"]))
     elif isinstance(e, str):
@@ -61,6 +92,20 @@ def parse_expr(e: Union[dict, str, None]) -> MaybeExpr:
 symbol_by_id: dict[str, Symbol] = {}
 symbol_by_name: dict[str, Symbol] = {}
 
+
+def print_expr(expr):
+    if not expr:
+        return
+    if isinstance(expr, dict):
+        print(f"({expr['type']} ", end="")
+        print_expr(expr["left"])
+        print(" ", end="")
+        print_expr(expr["right"])
+        print(")", end="")
+    elif isinstance(expr, str):
+        print(raw_syms[expr]["name"], raw_syms[expr]["ptr"], end="")
+
+
 for ptr,s in raw_syms.items():
     if "name" not in s:
         continue
@@ -68,8 +113,8 @@ for ptr,s in raw_syms.items():
     symbol = Symbol(
         id=ptr,
         name=s["name"],
-        dir_depend=parse_expr(s["dir_dep"].get("expr", None)),
-        rev_depend=parse_expr(s["rev_dep"].get("expr", None)),
+        dependencies=parse_expr(s["dir_dep"].get("expr", None)),
+        selected_by=parse_expr(s["rev_dep"].get("expr", None)),
         implied=parse_expr(s["implied"].get("expr", None)),
     )
 
