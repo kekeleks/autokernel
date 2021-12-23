@@ -34,11 +34,86 @@ def maybe_expr_to_sympy(e: MaybeExpr):
     elif isinstance(e, SymbolPtr):
         return sympy.Symbol(e.symbol().name)
 
+def m_maybe_expr_to_sympy(e: MaybeExpr):
+    if e is None:
+        raise ValueError("Cannot convert nil expression")
+    if isinstance(e, Expr):
+        return e.m_sympy()
+    elif isinstance(e, SymbolPtr):
+        return m_sym(e.symbol().name) | y_sym(e.symbol().name)
+
+def y_maybe_expr_to_sympy(e: MaybeExpr):
+    if e is None:
+        raise ValueError("Cannot convert nil expression")
+    if isinstance(e, Expr):
+        return e.y_sympy()
+    elif isinstance(e, SymbolPtr):
+        return y_sym(e.symbol().name)
+
+def y_sym(name: str):
+    return sympy.Symbol("y_" + name) & ~ sympy.Symbol("m_" + name)
+
+def m_sym(name: str):
+    return ~ sympy.Symbol("y_" + name) & sympy.Symbol("m_" + name)
+
+def n_sym(name: str):
+    return ~ sympy.Symbol("y_" + name) & ~ sympy.Symbol("m_" + name)
+
+def symop(op, a, b):
+    return sympy.Symbol(f'{a.symbol().name}_{op}_{b.symbol().name}')
+
 @dataclass
 class Expr:
     type: str
     left: MaybeExpr
     right: MaybeExpr
+
+    def y_sympy(self) -> Any:
+        def eq(a, b):
+            return (y_maybe_expr_to_sympy(a) & y_maybe_expr_to_sympy(b)
+                    | (m_maybe_expr_to_sympy(a) & m_maybe_expr_to_sympy(b) & ~ y_maybe_expr_to_sympy(a) & ~ y_maybe_expr_to_sympy(b))
+                    | (~ m_maybe_expr_to_sympy(a) & ~ m_maybe_expr_to_sympy(b)))
+        #def sym_yes(
+        fs = {
+            "or":      lambda e: y_maybe_expr_to_sympy(e.left) | y_maybe_expr_to_sympy(e.right),       # a_ym | b_ym
+            "and":     lambda e: y_maybe_expr_to_sympy(e.left) & y_maybe_expr_to_sympy(e.right),       # (a_ym) & (b_ym)
+            "not":     lambda e: ~ y_maybe_expr_to_sympy(e.left)   & ~  ~ ~  m_maybe_expr_to_sympy(e.left),      # (a_n | a_m)
+            "equal":   lambda e: symop("equal", e.left, e.right),
+            "unequal": lambda e: symop("unequal", e.left, e.right),
+            "lth":     lambda e: symop("lth", e.left, e.right),
+            "leq":     lambda e: symop("leq", e.left, e.right),
+            "gth":     lambda e: symop("gth", e.left, e.right),
+            "geq":     lambda e: symop("geq", e.left, e.right),
+            "symbol":  lambda e: y_maybe_expr_to_sympy(e.left),
+        }
+        if self.type not in fs:
+            raise ValueError(f"Cannot convert {self.type} expression to sympy.")
+        op = fs[self.type]
+        return sympy.simplify(op(self))
+
+    def m_sympy(self) -> Any:
+        def eq(a, b):
+            return y_maybe_expr_to_sympy(a) & y_maybe_expr_to_sympy(b) \
+                    | (m_maybe_expr_to_sympy(a) & m_maybe_expr_to_sympy(b) \
+                    & ~ y_maybe_expr_to_sympy(a) & ~ y_maybe_expr_to_sympy(b)) \
+                    | (~ m_maybe_expr_to_sympy(a) & ~ m_maybe_expr_to_sympy(b))
+        #def sym_yes(
+        fs = {
+            "or":      lambda e: m_maybe_expr_to_sympy(e.left) | m_maybe_expr_to_sympy(e.right),       # a_ym | b_ym
+            "and":     lambda e: m_maybe_expr_to_sympy(e.left) & m_maybe_expr_to_sympy(e.right),       # (a_ym) & (b_ym)
+            "not":     lambda e: ~ y_maybe_expr_to_sympy(e.left),      # (a_n | a_m)
+            "equal":   lambda e: symop("equal", e.left, e.right),
+            "unequal": lambda e: symop("unequal", e.left, e.right),
+            "lth":     lambda e: symop("lth", e.left, e.right),
+            "leq":     lambda e: symop("leq", e.left, e.right),
+            "gth":     lambda e: symop("gth", e.left, e.right),
+            "geq":     lambda e: symop("geq", e.left, e.right),
+            "symbol":  lambda e: m_maybe_expr_to_sympy(e.left),
+        }
+        if self.type not in fs:
+            raise ValueError(f"Cannot convert {self.type} expression to sympy.")
+        op = fs[self.type]
+        return sympy.simplify(op(self))
 
     def sympy(self) -> Any:
         def eq(a, b):
@@ -62,7 +137,7 @@ class Expr:
         return sympy.logic.boolalg.to_dnf(op(self))
 
     def __repr__(self):
-        return f"{self.sympy()}"
+        return f"\nm_expr={sympy.logic.boolalg.to_dnf(self.m_sympy())}\n\ny_expr={self.y_sympy()}"
 
 @dataclass
 class Symbol:
@@ -121,9 +196,48 @@ for ptr,s in raw_syms.items():
     symbol_by_id[symbol.id] = symbol
     symbol_by_name[symbol.name] = symbol
 
+from graph_tool.all import Graph, graph_draw
+from graph_tool.draw import sfdp_layout
+import matplotlib.cm
+
+def write_graph(filename):
+    g = Graph()
+    g_labels = g.new_vertex_property("string")
+    g.vp.labels = g_labels
+    g_refcount = g.new_vertex_property("int")
+    g.vp.refcount = g_refcount
+
+    vs = {}
+    for id,s in symbol_by_id.items():
+        v = g.add_vertex()
+        vs[id] = v
+        g_labels[v] = s.name
+
+    refcount = {k: 0 for k in vs}
+    for id,s in symbol_by_id.items():
+        def rec(e: MaybeExpr):
+            if isinstance(e, Expr):
+                rec(e.left)
+                rec(e.right)
+            elif isinstance(e, SymbolPtr):
+                g.add_edge(vs[s.id], vs[e.id])
+                refcount[e.id] += 1
+        rec(s.dependencies)
+
+    for id,s in symbol_by_id.items():
+        g_refcount[vs[id]] = refcount[id]
+
+    g.save(filename)
+    pos = sfdp_layout(g)
+    graph_draw(g, pos, output_size=(1000, 1000), vertex_color=[1,1,1,0],
+            #vertex_fill_color=g_refcount,
+            vertex_size=1, edge_pen_width=1.2,
+            vcmap=matplotlib.cm.gist_heat_r, output=f"{filename}.pdf")
+
 def main() -> None:
     #kernel = load_kernel("/usr/src/linux")
     #kernel.syms["EXPERT"]
 
+    #write_graph("fettergraph.xml.gz")
     s = SymbolPtr(sys.argv[1]).symbol()
     print(s)
